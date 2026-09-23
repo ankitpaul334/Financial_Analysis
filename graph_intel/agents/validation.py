@@ -1,0 +1,67 @@
+"""Agents 9-12 — quant, counterfactual, falsification, risk."""
+from __future__ import annotations
+import math
+import statistics
+from typing import Any, Dict, List
+from .base import BaseAgent, AgentResult
+
+def _corr(xs: List[float], ys: List[float]) -> float:
+    if len(xs) < 3 or len(xs) != len(ys):
+        return 0.0
+    mx, my = statistics.fmean(xs), statistics.fmean(ys)
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    den = math.sqrt(sum((x - mx) ** 2 for x in xs) * sum((y - my) ** 2 for y in ys))
+    return round(num / (den + 1e-9), 3)
+
+class QuantAgent(BaseAgent):
+    name = "quant"
+    def run(self, graph, payload: Dict[str, Any]) -> AgentResult:
+        x, y = payload.get("series_x", []), payload.get("series_y", [])
+        cur_x = float(payload.get("current_x", 0))
+        cur_y = float(payload.get("current_y", 0))
+        if len(x) < 3:
+            return AgentResult(ok=False, data={}, errors=["insufficient history"])
+        beta = _corr(x, y) * (statistics.pstdev(y) / (statistics.pstdev(x) + 1e-9))
+        resid = cur_y - beta * cur_x
+        sd = statistics.pstdev([yy - beta * xx for xx, yy in zip(x, y)]) + 1e-9
+        z = resid / sd
+        return AgentResult(ok=True, data={"beta": round(beta, 3), "correlation": _corr(x, y),
+                           "residual": round(resid, 3), "zscore": round(z, 3),
+                           "significant": abs(z) >= 2.0})
+
+class CounterfactualAgent(BaseAgent):
+    name = "counterfactual"
+    def run(self, graph, payload: Dict[str, Any]) -> AgentResult:
+        drivers = payload.get("market_drivers", [])
+        observed = float(payload.get("observed_us_move", 0))
+        betas = payload.get("betas", {})
+        expected = round(sum(float(d.get("move", 0)) * float(betas.get(d.get("name", ""), 0.3)) for d in drivers), 3)
+        resid = round(observed - expected, 3)
+        return AgentResult(ok=True, data={"expected_us_move": expected,
+                           "observed_us_move": observed, "residual": resid})
+
+class FalsificationAgent(BaseAgent):
+    name = "falsification"
+    def run(self, graph, payload: Dict[str, Any]) -> AgentResult:
+        alts = payload.get("alternative_paths", [])
+        explained = sum(float(a.get("explains_pct", 0)) for a in alts)
+        kill = explained >= 80 or any(a.get("decisive") for a in alts)
+        sig = payload.get("signal_id")
+        if sig and sig in graph.nodes:
+            graph.add_edge("SIGNAL_CONTRADICTED_BY" if kill else "SIGNAL_VALIDATED_BY",
+                           sig, payload.get("event_id", sig), confidence=0.7)
+        return AgentResult(ok=True, data={"explained_pct": explained, "rejected": kill,
+                           "n_alternatives": len(alts)})
+
+class RiskAgent(BaseAgent):
+    name = "risk"
+    def run(self, graph, payload: Dict[str, Any]) -> AgentResult:
+        gross = float(payload.get("gross_edge_bps", 0))
+        costs = float(payload.get("spread_bps", 0)) + float(payload.get("slippage_bps", 0))
+        risk_pen = float(payload.get("volatility_bps", 0)) * 0.5 + float(payload.get("gap_bps", 0))
+        net = round(gross - costs - risk_pen, 1)
+        approved = net >= float(payload.get("min_net_bps", 10)) and not payload.get("hard_block")
+        if payload.get("signal_id") and payload["signal_id"] in graph.nodes:
+            graph.add_node("RiskFactor", signal=payload["signal_id"], net_edge_bps=net, approved=approved)
+        return AgentResult(ok=True, data={"gross": gross, "costs": costs,
+                           "risk_penalty": risk_pen, "net_edge_bps": net, "approved": approved})
