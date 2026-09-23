@@ -77,20 +77,31 @@ class TemporalGraph:
         return e
 
     def neighbours(self, nid: str, edge_types: Optional[set] = None, depth: int = 1) -> Dict[str, List[Edge]]:
+        if nid not in self.nodes:
+            raise KeyError(f"unknown node: {nid}")
+        try:
+            depth = int(depth)
+        except (TypeError, ValueError):
+            raise ValueError("depth must be an integer")
+        if depth < 1 or depth > 6:
+            raise ValueError("depth must be 1..6")
         out: Dict[str, List[Edge]] = {}
         frontier = {nid}
         seen = {nid}
+        adj: Dict[str, List[Edge]] = {}
+        for e in self.edges.values():
+            adj.setdefault(e.frm, []).append(e)
+            adj.setdefault(e.to, []).append(e)
         for _ in range(depth):
             nxt = set()
-            for e in self.edges.values():
-                if edge_types and e.type not in edge_types:
-                    continue
-                if e.frm in frontier and e.to not in seen:
-                    out.setdefault(e.to, []).append(e)
-                    nxt.add(e.to)
-                elif e.to in frontier and e.frm not in seen:
-                    out.setdefault(e.frm, []).append(e)
-                    nxt.add(e.frm)
+            for n in frontier:
+                for e in adj.get(n, []):
+                    if edge_types and e.type not in edge_types:
+                        continue
+                    nb = e.to if e.frm == n else e.frm
+                    if nb not in seen:
+                        out.setdefault(nb, []).append(e)
+                        nxt.add(nb)
             seen |= nxt
             frontier = nxt
             if not frontier:

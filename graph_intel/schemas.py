@@ -1,7 +1,7 @@
 """I3 — Pydantic schemas for the data layer."""
 from __future__ import annotations
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
 
@@ -21,12 +21,12 @@ class Article(BaseModel):
     @field_validator("published_at", "event_time", mode="before")
     @classmethod
     def _tz(cls, v):
-        if v is None or isinstance(v, datetime):
-            if isinstance(v, datetime) and v.tzinfo is None:
-                return v.replace(tzinfo=datetime.now().astimezone().tzinfo)
+        if v is None:
             return v
+        if isinstance(v, datetime):
+            return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
         dt = datetime.fromisoformat(str(v))
-        return dt if dt.tzinfo else dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
     @property
     def key(self) -> str:

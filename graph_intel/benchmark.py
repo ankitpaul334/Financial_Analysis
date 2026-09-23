@@ -1,5 +1,6 @@
 """I6 — centralized dislocation benchmark: one gate set, composite score."""
 from __future__ import annotations
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
@@ -20,10 +21,20 @@ class DislocationScore:
     rejects: List[str] = field(default_factory=list)
     decision: str = "NO_ACTION"
 
+def _num(v: Any) -> float:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    return f if math.isfinite(f) else 0.0
+
 def evaluate(overseas_move: float = 0.0, residual: float = 0.0, zscore: float = 0.0,
              hit_rate: float = 0.0, stability: float = 0.0, net_edge_bps: float = 0.0,
              novelty: float = 0.0, exposure: float = 0.0, is_new: bool = False,
              **flags) -> DislocationScore:
+    overseas_move, residual, zscore = _num(overseas_move), _num(residual), _num(zscore)
+    hit_rate, stability = _num(hit_rate), _num(stability)
+    net_edge_bps, novelty, exposure = _num(net_edge_bps), _num(novelty), _num(exposure)
     gates = {
         "new_information": bool(is_new) and novelty > THRESHOLDS["min_novelty"],
         "overseas_repricing": abs(overseas_move) >= THRESHOLDS["min_overseas"],

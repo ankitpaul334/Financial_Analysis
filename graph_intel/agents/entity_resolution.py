@@ -52,7 +52,11 @@ class EntityResolutionAgent(BaseAgent):
     def run(self, graph, payload: Dict[str, Any]) -> AgentResult:
         resolved: List[Dict[str, Any]] = []
         unresolved: List[str] = []
+        errors: List[str] = []
         for raw in payload.get("entities", []):
+            if not isinstance(raw, str) or not raw.strip():
+                errors.append(f"invalid entity: {raw!r}")
+                continue
             ntype, nid, conf = self.resolve(graph, raw)
             node = graph.add_node(ntype, id=nid, canonical_name=nid, aliases=[raw])
             if raw not in node.props.get("aliases", []):
@@ -60,4 +64,5 @@ class EntityResolutionAgent(BaseAgent):
             resolved.append({"raw": raw, "node_id": nid, "type": ntype, "confidence": conf})
             if conf < 0.5:
                 unresolved.append(raw)
-        return AgentResult(ok=True, data={"resolved": resolved, "unresolved": unresolved})
+        return AgentResult(ok=not errors, data={"resolved": resolved, "unresolved": unresolved},
+                           errors=errors)

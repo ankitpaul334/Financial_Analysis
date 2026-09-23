@@ -47,15 +47,21 @@ class TemporalStore(TemporalGraph):
         return n
 
     def add_edge(self, type: str, frm: str, to: str, valid_from: Optional[str] = None,
-                 txn_time: Optional[str] = None, **props) -> Edge:
+                 txn_time: Optional[str] = None, commit: bool = True, **props) -> Edge:
         e = super().add_edge(type, frm, to, **props)
         vf = valid_from or e.props.get("valid_from") or _utcnow()
         self.db.execute(
             "INSERT INTO edges (id, type, \"frm\", \"to\", props, valid_from, valid_to, txn_time)"
             " VALUES (?,?,?,?,?,?,?,?)",
             (e.id, e.type, e.frm, e.to, json.dumps(e.props), vf, None, txn_time or _utcnow()))
-        self.db.commit()
+        if commit:
+            self.db.commit()
         return e
+
+    def add_edges_batch(self, edges: list) -> list:
+        out = [self.add_edge(commit=False, **kw) for kw in edges]
+        self.db.commit()
+        return out
 
     def supersede_edge(self, type: str, frm: str, to: str, valid_from: Optional[str] = None,
                        at: Optional[str] = None, **props) -> Edge:

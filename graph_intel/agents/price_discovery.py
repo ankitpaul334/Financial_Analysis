@@ -18,9 +18,15 @@ class PriceDiscoveryAgent(BaseAgent):
                 lead_lag = (datetime.fromisoformat(tb) - datetime.fromisoformat(ta)).total_seconds() / 60
             except Exception:
                 pass
+            try:
+                move_a = abs(float(a.get("move_pct", 0)))
+                move_b = float(b.get("move_pct", 0))
+                transmission = round(move_b / move_a, 3) if move_a >= 0.05 else None
+            except (TypeError, ValueError):
+                transmission = None
             legs.append({"from": a.get("asset"), "to": b.get("asset"),
                          "lag_min": round(lead_lag, 1),
-                         "transmission": round(float(b.get("move_pct", 0)) / (abs(float(a.get("move_pct", 0))) + 1e-9), 3)})
+                         "transmission": transmission})
         unreacted = [c["asset"] for c in chain if abs(float(c.get("move_pct", 0))) < 0.05]
         return AgentResult(ok=True, data={"legs": legs, "originator": chain[0]["asset"],
                            "terminal": chain[-1]["asset"], "unreacted": unreacted})

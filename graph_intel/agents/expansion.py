@@ -18,7 +18,17 @@ class GraphExpansionAgent(BaseAgent):
         start = payload.get("event_id")
         if not start or start not in graph.nodes:
             return AgentResult(ok=False, data={}, errors=[f"event not in graph: {start}"])
-        depth = int(payload.get("max_depth", 3))
+        try:
+            depth = int(payload.get("max_depth", 3))
+        except (TypeError, ValueError):
+            return AgentResult(ok=False, data={}, errors=["max_depth must be an integer"])
+        if depth < 1 or depth > 6:
+            return AgentResult(ok=False, data={}, errors=["max_depth must be 1..6"])
+        try:
+            top_k = int(payload.get("top_k", 15))
+        except (TypeError, ValueError):
+            return AgentResult(ok=False, data={}, errors=["top_k must be an integer"])
+        top_k = max(1, min(top_k, 100))
         scored: Dict[str, float] = {start: 1.0}
         frontier = {start}
         seen = {start}
@@ -40,7 +50,7 @@ class GraphExpansionAgent(BaseAgent):
             seen |= set(nxt)
             frontier = set(nxt)
         ranked = sorted(((k, v) for k, v in scored.items() if k != start),
-                        key=lambda x: -x[1])[: payload.get("top_k", 15)]
+                        key=lambda x: -x[1])[:top_k]
         return AgentResult(ok=True, data={
             "event_id": start,
             "ranked_nodes": [{"node_id": k, "score": round(v, 3),

@@ -1,18 +1,8 @@
 """Agents 9-12 — quant, counterfactual, falsification, risk."""
 from __future__ import annotations
-import math
-import statistics
 from typing import Any, Dict, List
 from graph_intel.confidence import score as conf_score
 from .base import BaseAgent, AgentResult
-
-def _corr(xs: List[float], ys: List[float]) -> float:
-    if len(xs) < 3 or len(xs) != len(ys):
-        return 0.0
-    mx, my = statistics.fmean(xs), statistics.fmean(ys)
-    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
-    den = math.sqrt(sum((x - mx) ** 2 for x in xs) * sum((y - my) ** 2 for y in ys))
-    return round(num / (den + 1e-9), 3)
 
 class QuantAgent(BaseAgent):
     name = "quant"

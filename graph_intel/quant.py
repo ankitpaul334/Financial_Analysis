@@ -4,8 +4,14 @@ import math
 import statistics
 from typing import Any, Callable, Dict, List, Optional
 
+def _finite(xs: List[float]) -> bool:
+    return bool(xs) and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                            and math.isfinite(v) for v in xs)
+
 def beta_from_history(series_x: List[float], series_y: List[float]) -> Dict[str, float]:
     if len(series_x) < 3 or len(series_x) != len(series_y):
+        return {"beta": 0.6, "correlation": 0.0, "resid_sd": 1.0}
+    if not _finite(series_x) or not _finite(series_y):
         return {"beta": 0.6, "correlation": 0.0, "resid_sd": 1.0}
     mx, my = statistics.fmean(series_x), statistics.fmean(series_y)
     num = sum((x - mx) * (y - my) for x, y in zip(series_x, series_y))
@@ -19,6 +25,10 @@ class BetaResidualService:
     @staticmethod
     def residual(overseas_move: float, observed_us: float, beta: float,
                  resid_sd: float = 1.0) -> Dict[str, Any]:
+        for v in (overseas_move, observed_us, beta, resid_sd):
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                return {"expected_us_move": 0.0, "residual": 0.0, "zscore": 0.0,
+                        "significant": False, "beta": 0.0, "invalid_input": True}
         expected = overseas_move * beta
         resid = observed_us - expected
         z = resid / (resid_sd + 1e-9)
