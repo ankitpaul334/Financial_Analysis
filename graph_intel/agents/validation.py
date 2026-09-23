@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import statistics
 from typing import Any, Dict, List
+from graph_intel.confidence import score as conf_score
 from .base import BaseAgent, AgentResult
 
 def _corr(xs: List[float], ys: List[float]) -> float:
@@ -16,29 +17,31 @@ def _corr(xs: List[float], ys: List[float]) -> float:
 class QuantAgent(BaseAgent):
     name = "quant"
     def run(self, graph, payload: Dict[str, Any]) -> AgentResult:
+        from graph_intel.quant import beta_from_history, BetaResidualService
         x, y = payload.get("series_x", []), payload.get("series_y", [])
         cur_x = float(payload.get("current_x", 0))
         cur_y = float(payload.get("current_y", 0))
         if len(x) < 3:
             return AgentResult(ok=False, data={}, errors=["insufficient history"])
-        beta = _corr(x, y) * (statistics.pstdev(y) / (statistics.pstdev(x) + 1e-9))
-        resid = cur_y - beta * cur_x
-        sd = statistics.pstdev([yy - beta * xx for xx, yy in zip(x, y)]) + 1e-9
-        z = resid / sd
-        return AgentResult(ok=True, data={"beta": round(beta, 3), "correlation": _corr(x, y),
-                           "residual": round(resid, 3), "zscore": round(z, 3),
-                           "significant": abs(z) >= 2.0})
+        stats = beta_from_history(x, y)
+        r = BetaResidualService.residual(cur_x, cur_y, stats["beta"], stats["resid_sd"])
+        return AgentResult(ok=True, data={"beta": r["beta"], "correlation": round(stats["correlation"], 3),
+                           "residual": r["residual"], "zscore": r["zscore"],
+                           "significant": r["significant"]})
 
 class CounterfactualAgent(BaseAgent):
     name = "counterfactual"
     def run(self, graph, payload: Dict[str, Any]) -> AgentResult:
+        from graph_intel.quant import BetaResidualService
         drivers = payload.get("market_drivers", [])
         observed = float(payload.get("observed_us_move", 0))
         betas = payload.get("betas", {})
-        expected = round(sum(float(d.get("move", 0)) * float(betas.get(d.get("name", ""), 0.3)) for d in drivers), 3)
-        resid = round(observed - expected, 3)
-        return AgentResult(ok=True, data={"expected_us_move": expected,
-                           "observed_us_move": observed, "residual": resid})
+        baseline = round(sum(float(d.get("move", 0)) * float(betas.get(d.get("name", ""), 0.3)) for d in drivers), 3)
+        beta = float(payload.get("beta", 1.0))
+        r = BetaResidualService.residual(baseline, observed, beta, float(payload.get("resid_sd", 1.0)))
+        return AgentResult(ok=True, data={"expected_us_move": r["expected_us_move"],
+                           "observed_us_move": observed, "residual": r["residual"],
+                           "zscore": r["zscore"], "significant": r["significant"]})
 
 class FalsificationAgent(BaseAgent):
     name = "falsification"
@@ -47,11 +50,15 @@ class FalsificationAgent(BaseAgent):
         explained = sum(float(a.get("explains_pct", 0)) for a in alts)
         kill = explained >= 80 or any(a.get("decisive") for a in alts)
         sig = payload.get("signal_id")
+        conf = conf_score(zscore=float(payload.get("zscore", 0.0)),
+                          stability=float(payload.get("stability", 0.5)),
+                          strength=1.0 - min(1.0, explained / 100.0), depth=2)
         if sig and sig in graph.nodes:
             graph.add_edge("SIGNAL_CONTRADICTED_BY" if kill else "SIGNAL_VALIDATED_BY",
-                           sig, payload.get("event_id", sig), confidence=0.7)
+                           sig, payload.get("event_id", sig),
+                           confidence=conf["confidence"], confidence_parts=conf["components"])
         return AgentResult(ok=True, data={"explained_pct": explained, "rejected": kill,
-                           "n_alternatives": len(alts)})
+                           "n_alternatives": len(alts), "confidence": conf})
 
 class RiskAgent(BaseAgent):
     name = "risk"

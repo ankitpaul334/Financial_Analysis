@@ -2,6 +2,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict
+from graph_intel.confidence import score as conf_score
 from .base import BaseAgent, AgentResult
 
 class DecisionAgent(BaseAgent):
@@ -20,10 +21,14 @@ class DecisionAgent(BaseAgent):
             d = "RESEARCH_SIGNAL"
         dec = graph.add_node("Decision", decision=d, signal=payload.get("signal_id"),
                              reason=f"fals={fals.get('rejected')},risk={risk.get('approved')},z={quant.get('zscore')}")
+        conf = conf_score(zscore=float(quant.get("zscore", 0.0)),
+                          stability=float(payload.get("stability", 0.5)),
+                          strength=float(risk.get("net_edge_bps", 0)) / 100.0, depth=2)
         if payload.get("signal_id") and payload["signal_id"] in graph.nodes:
-            graph.add_edge("DECISION_BASED_ON", dec.id, payload["signal_id"], confidence=0.8)
+            graph.add_edge("DECISION_BASED_ON", dec.id, payload["signal_id"],
+                           confidence=conf["confidence"], confidence_parts=conf["components"])
         return AgentResult(ok=True, data={"decision": d, "decision_id": dec.id,
-                           "confidence_breakdown": payload.get("confidence", {})})
+                           "confidence_breakdown": conf})
 
 class ExecutionAgent(BaseAgent):
     name = "execution"

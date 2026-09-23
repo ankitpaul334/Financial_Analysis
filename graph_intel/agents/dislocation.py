@@ -1,6 +1,7 @@
 """Agent 8 — Dislocation Detector: 5-gate candidate filter."""
 from __future__ import annotations
 from typing import Any, Dict, List
+from graph_intel.confidence import score as conf_score
 from .base import BaseAgent, AgentResult
 
 class DislocationDetector(BaseAgent):
@@ -19,10 +20,17 @@ class DislocationDetector(BaseAgent):
                 rejects.append(k)
         passed = all(gates.values()) and not rejects
         sig = None
+        conf = None
         if passed:
             sig = graph.add_node("Signal", event=payload.get("event_id"),
                                  us_asset=payload.get("us_asset"),
                                  residual=payload.get("residual"))
-            graph.add_edge("SIGNAL_DERIVED_FROM", sig.id, payload["event_id"], confidence=0.6)
+            conf = conf_score(source_tier=int(payload.get("source_tier", 6)),
+                              zscore=float(payload.get("zscore", 0.0)),
+                              stability=float(payload.get("stability", 0.5)),
+                              strength=float(payload.get("exposure", 0.5)), depth=1)
+            graph.add_edge("SIGNAL_DERIVED_FROM", sig.id, payload["event_id"],
+                           confidence=conf["confidence"], confidence_parts=conf["components"])
         return AgentResult(ok=True, data={"gates": gates, "rejects": rejects,
-                           "candidate": passed, "signal_id": sig.id if sig else None})
+                           "candidate": passed, "signal_id": sig.id if sig else None,
+                           "confidence": conf})
